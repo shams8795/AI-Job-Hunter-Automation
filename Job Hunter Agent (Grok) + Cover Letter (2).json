@@ -1,0 +1,313 @@
+{
+  "name": "Job Hunter Agent (Grok) + Cover Letter",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "upload-cv",
+        "options": {}
+      },
+      "name": "Upload CV",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -1920,
+        240
+      ],
+      "id": "4a991637-e2a5-4b2e-b5ea-16f43fe80e67",
+      "webhookId": "5ae887ee-9ebc-4ea9-a3dc-d3cd1a3b4bfe"
+    },
+    {
+      "parameters": {
+        "url": "https://remoteok.com/api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Search Jobs (RemoteOK)",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        -1312,
+        240
+      ],
+      "id": "e71610f7-e93d-44d5-8130-006123d5207e",
+      "typeVersion": 4.4
+    },
+    {
+      "parameters": {
+        "functionCode": "// Get skills from Gemini output\nconst skills = $node[\"Parse Gemini Output\"].json.skills\n  .map(skill => skill.toLowerCase());\n\n// Score all jobs by match percentage\nconst scoredJobs = items\n  .filter(item => item.json.description)\n  .map(item => {\n    const description = item.json.description.toLowerCase();\n\n    const matchedSkills = skills.filter(skill =>\n      description.includes(skill)\n    );\n\n    const matchPercentage = skills.length === 0\n      ? 0\n      : Math.round((matchedSkills.length / skills.length) * 100);\n\n    return {\n      json: {\n        ...item.json,\n        matchPercentage,\n        matchedSkills\n      }\n    };\n  });\n\n// Sort all jobs by highest match percentage\nscoredJobs.sort(\n  (a, b) => b.json.matchPercentage - a.json.matchPercentage\n);\n\n// Always return top 5 closest jobs\nreturn scoredJobs.slice(0, 1);\n"
+      },
+      "name": "Filter Jobs",
+      "type": "n8n-nodes-base.function",
+      "position": [
+        -1120,
+        240
+      ],
+      "id": "5d1d3dc5-a7e2-4ecd-92fd-181ba53f99ca",
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "text": "Extract the following information from this CV.\nReturn the result as valid JSON only.\n\nRequired fields:\n- job_titles\n- skills\n- tools\n- experience_years",
+        "inputType": "binary",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        -1712,
+        240
+      ],
+      "id": "45241721-6e28-4e29-a5d8-c525e2a388a6",
+      "name": "Analyze document",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "3Nbf1rNicJuca5r5",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Gemini output is text that contains JSON\nconst rawText = $json.content.parts[0].text;\n\n// Remove markdown if Gemini wrapped the JSON\nconst cleaned = rawText.replace(/```json|```/g, '').trim();\n\n// Parse JSON string to real object\nconst parsed = JSON.parse(cleaned);\n\n// Return clean structured data\nreturn [\n  {\n    json: parsed\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1504,
+        240
+      ],
+      "id": "e85a5457-1b42-4d7b-9843-1a457d7da0e2",
+      "name": "Parse Gemini Output"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Customize the following CV to better match the job description below.\n\nFocus on:\n- Relevant skills\n- Relevant experience\n- Clear and professional language\n\nReturn the customized CV text only (no explanations).\n\nJob Title: {{$json.position}}\nCompany: {{$json.company}}\nJob Description:\n{{$json.description}}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        -880,
+        240
+      ],
+      "id": "3852757a-7488-4957-bffe-c6660dc06373",
+      "name": "Extract Customized CV",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "3Nbf1rNicJuca5r5",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Write a professional cover letter for the following job application.\n\nJob Title: {{$json.position}}\nCompany: {{$json.company}}\n\nUse the customized CV below to highlight relevant skills and experience.\nKeep the tone professional and concise.\n\nCustomized CV:\n{{$node[\"Extract Customized CV\"].json.customized_cv}}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        -544,
+        240
+      ],
+      "id": "36a94241-0b0a-4126-8e37-8df7770ad05d",
+      "name": "Generate Cover Letter",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "3Nbf1rNicJuca5r5",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "negmaabderhman@gmail.com",
+        "subject": "=Job Application – {{$json.position}}",
+        "message": "=<p>Dear Hiring Manager,</p>  <p>Please find my application for the <strong>{{$json.position}}</strong> position.</p>  <p><strong>Cover Letter:</strong></p> <pre>{{$node[\"Generate Cover Letter\"].json.content.parts[0].text}}</pre>  <p>Best regards,<br/> Your Name</p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -192,
+        240
+      ],
+      "id": "f741738f-7a4a-45d9-9dc7-7be8faa5fd22",
+      "name": "Application Automation",
+      "webhookId": "b3cdfda5-8240-4b82-b84b-00ff45c48c1b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "EvbwG8qGmGFo1rcK",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "negmaabderhman@gmail.com",
+        "subject": "=✅ Application Submitted",
+        "message": "=Your application was submitted successfully.\n\nCompany: {{$json.company}}\nPosition: {{$json.position}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        32,
+        240
+      ],
+      "id": "a7077952-6085-4c54-8e77-2397f5e0142f",
+      "name": "Application Automation1",
+      "webhookId": "b3cdfda5-8240-4b82-b84b-00ff45c48c1b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "EvbwG8qGmGFo1rcK",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Upload CV": {
+      "main": [
+        [
+          {
+            "node": "Analyze document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Jobs (RemoteOK)": {
+      "main": [
+        [
+          {
+            "node": "Filter Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Jobs": {
+      "main": [
+        [
+          {
+            "node": "Extract Customized CV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze document": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gemini Output": {
+      "main": [
+        [
+          {
+            "node": "Search Jobs (RemoteOK)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Customized CV": {
+      "main": [
+        [
+          {
+            "node": "Generate Cover Letter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Cover Letter": {
+      "main": [
+        [
+          {
+            "node": "Application Automation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Application Automation": {
+      "main": [
+        [
+          {
+            "node": "Application Automation1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "ace0c483-7978-4916-9741-3dd76a2ddcf9",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "85e3cec0481e70d5ecf8152c7f72b08794b4219b8ddbe0d7c6190eb52161a011"
+  },
+  "id": "opFwJnrToGTxk76F",
+  "tags": []
+}
